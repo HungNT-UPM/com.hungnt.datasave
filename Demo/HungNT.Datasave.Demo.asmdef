@@ -1,0 +1,17 @@
+{
+  "name": "HungNT.Datasave.Demo",
+  "rootNamespace": "HungNT.Datasave.Demo",
+  "references": [
+    "HungNT.Datasave",
+    "HungNT.Core"
+  ],
+  "includePlatforms": [],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": true,
+  "defineConstraints": [],
+  "versionDefines": [],
+  "noEngineReferences": false
+}
