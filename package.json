@@ -1,0 +1,15 @@
+{
+  "name": "com.hungnt.datasave",
+  "version": "1.0.4",
+  "displayName": "HungNT Datasave",
+  "description": "Multi-domain save/load (HungNT.Datasave): BaseSaveData + DatasaveService (Odin Serialization JSON; DEBUG=plain text, release=.datasave AES), demos.",
+  "unity": "2022.3",
+  "dependencies": {
+    "com.hungnt.core": "1.0.4"
+  },
+  "author": {
+    "name": "HungNT",
+    "url": "https://github.com/HungNT-UPM"
+  },
+  "license": "MIT"
+}
