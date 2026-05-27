@@ -1,0 +1,23 @@
+{
+    "name": "HungNT.Datasave.Editor",
+    "rootNamespace": "HungNT.Datasave.Editor",
+    "references": [
+        "HungNT.Datasave",
+        "HungNT.Datasave.Demo",
+        "HungNT.Core",
+        "Sirenix.OdinInspector.Attributes",
+        "Sirenix.OdinInspector.Editor",
+        "Sirenix.Utilities.Editor"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
