@@ -1,0 +1,20 @@
+{
+    "name": "HungNT.Datasave.Editor",
+    "rootNamespace": "HungNT.Datasave.Editor",
+    "references": [
+        "HungNT.Core",
+        "HungNT.Datasave",
+        "HungNT.Datasave.Demo"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
