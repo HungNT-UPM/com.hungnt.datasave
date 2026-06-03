@@ -1,6 +1,6 @@
 {
-    "name": "HungNT.Datasave",
-    "rootNamespace": "HungNT.Datasave",
+    "name": "HungNT.DataSave",
+    "rootNamespace": "HungNT.DataSave",
     "references": [
         "HungNT.Core"
     ],

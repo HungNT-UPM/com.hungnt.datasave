@@ -1,10 +1,9 @@
 {
-    "name": "HungNT.Datasave.Editor",
-    "rootNamespace": "HungNT.Datasave.Editor",
+    "name": "HungNT.DataSave.Editor",
+    "rootNamespace": "HungNT.DataSave.Editor",
     "references": [
         "HungNT.Core",
-        "HungNT.Datasave",
-        "HungNT.Datasave.Demo"
+        "HungNT.DataSave"
     ],
     "includePlatforms": [
         "Editor"

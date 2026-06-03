@@ -3,12 +3,12 @@ using System.IO;
 using System.Text;
 using Sirenix.Serialization;
 
-namespace HungNT.Datasave
+namespace HungNT.DataSave
 {
     /// <summary>
     /// Serialize / deserialize <see cref="BaseSaveData"/> bằng <b>Odin</b> (<see cref="DataFormat.JSON"/>).
     /// </summary>
-    internal static class DatasaveOdinIO
+    internal static class DataSaveOdinIO
     {
         private static readonly Encoding Utf8NoBom = new UTF8Encoding(false);
 

@@ -3,12 +3,12 @@ using System.IO;
 using System.Security.Cryptography;
 using System.Text;
 
-namespace HungNT.Datasave
+namespace HungNT.DataSave
 {
     /// <summary>
     /// Đĩa DEBUG: text Odin JSON (đọc được); release: AES bọc cùng chuỗi Odin JSON.
     /// </summary>
-    internal static class DatasaveDiskCodec
+    internal static class DataSaveDiskCodec
     {
         private static readonly byte[] Magic = Encoding.ASCII.GetBytes("HNT1");
 
@@ -77,7 +77,7 @@ namespace HungNT.Datasave
             if (HasMagic(bytes))
                 return DecryptFromBlob(bytes);
 
-            throw new InvalidDataException("Datasave: expected HNT1 encrypted payload.");
+            throw new InvalidDataException("DataSave: expected HNT1 encrypted payload.");
 #endif
         }
 
@@ -133,10 +133,10 @@ namespace HungNT.Datasave
         {
             var min = Magic.Length + 1 + IvLengthBytes + 1;
             if (bytes.Length < min || !HasMagic(bytes))
-                throw new InvalidDataException("Invalid datasave header.");
+                throw new InvalidDataException("Invalid DataSave header.");
 
             if (bytes[Magic.Length] != PayloadFormatVersion)
-                throw new InvalidDataException($"Unsupported datasave format version: {bytes[Magic.Length]}.");
+                throw new InvalidDataException($"Unsupported DataSave format version: {bytes[Magic.Length]}.");
 
             var key = KeyLazy.Value;
             var iv = new byte[IvLengthBytes];

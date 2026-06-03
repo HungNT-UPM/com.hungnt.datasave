@@ -1,21 +1,22 @@
+using HungNT;
 using Sirenix.OdinInspector;
 using UnityEngine;
 
-namespace HungNT.Datasave.Demo
+namespace HungNT.DataSave.Demo
 {
     /// <summary>
-    /// Kịch bản minh hoạ điều khiển ba domain song song: chung, booster, daily login; phụ thuộc Service Locator đã đăng ký <see cref="IDatasaveService"/>.
+    /// Kịch bản minh hoạ điều khiển ba domain song song: chung, booster, daily login; phụ thuộc Service Locator đã đăng ký <see cref="IDataSaveService"/>.
     /// </summary>
     public class MultiDomainDatasaveDemo : MonoBehaviour
     {
         [ShowInInspector, ReadOnly, FoldoutGroup("General")]
         private GeneralSaveData _general;
 
-        private IDatasaveService _datasave;
+        private IDataSaveService _datasave;
 
         private void Start()
         {
-            _datasave = this.GetService<IDatasaveService>();
+            _datasave = ServiceLocator.Instance.Get<IDataSaveService>();
             RefreshViews();
         }
 
@@ -23,7 +24,7 @@ namespace HungNT.Datasave.Demo
         private void RefreshViews()
         {
             if (_datasave == null)
-                _datasave = this.GetService<IDatasaveService>();
+                _datasave = ServiceLocator.Instance.Get<IDataSaveService>();
 
             _general = _datasave.GetData<GeneralSaveData>();
         }

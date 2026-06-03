@@ -4,15 +4,15 @@ using System.IO;
 using Sirenix.OdinInspector;
 using UnityEngine;
 
-namespace HungNT.Datasave
+namespace HungNT.DataSave
 {
     /// <summary>
     /// Service: cache + một file / miền (<see cref="BaseSaveData"/>) dưới persistent.
-    /// Serialize: <b>Odin</b> <see cref="Sirenix.Serialization.DataFormat.JSON"/>. Đĩa: <c>DEBUG</c> = text; release = <see cref="DatasaveDiskCodec.EncryptedExtension"/>.
+    /// Serialize: <b>Odin</b> <see cref="Sirenix.Serialization.DataFormat.JSON"/>. Đĩa: <c>DEBUG</c> = text; release = <see cref="DataSaveDiskCodec.EncryptedExtension"/>.
     /// </summary>
-    public class DatasaveService : MonoBehaviour, IDatasaveService
+    public class DataSaveService : MonoBehaviour, IDataSaveService
     {
-        public const string RelativeDirectory = "Datasave";
+        public const string RelativeDirectory = "DataSave";
 
         private Dictionary<Type, BaseSaveData> _cache;
         private Dictionary<Type, string> _fullPathByType;
@@ -41,7 +41,7 @@ namespace HungNT.Datasave
         {
         }
 
-        /// <summary>Đọc cache / đĩa, không gắn <see cref="IDatasaveService"/> (Editor / công cụ tự <c>BindService</c>).</summary>
+        /// <summary>Đọc cache / đĩa, không gắn <see cref="IDataSaveService"/> (Editor / công cụ tự <c>BindService</c>).</summary>
         public BaseSaveData GetOrLoadDomain(Type type)
         {
             EnsureCaches();
@@ -147,7 +147,7 @@ namespace HungNT.Datasave
             var sample = _cache.TryGetValue(type, out var cached) ? cached : new T();
             var fullPath = GetOrCreateFullPath(type, sample);
 
-            DatasaveDiskCodec.DeleteFileIfExists(fullPath);
+            DataSaveDiskCodec.DeleteFileIfExists(fullPath);
 
             UntrackPaths(type);
             _cache.Remove(type);
@@ -162,7 +162,7 @@ namespace HungNT.Datasave
             {
                 if (!seen.Add(full))
                     continue;
-                DatasaveDiskCodec.DeleteFileIfExists(full);
+                DataSaveDiskCodec.DeleteFileIfExists(full);
             }
 
             _cache.Clear();
@@ -189,8 +189,8 @@ namespace HungNT.Datasave
 
         private void WriteToDisk(BaseSaveData data, string fullPath)
         {
-            var text = DatasaveOdinIO.SerializeToOdinJsonText(data);
-            DatasaveDiskCodec.WriteJsonFile(fullPath, text);
+            var text = DataSaveOdinIO.SerializeToOdinJsonText(data);
+            DataSaveDiskCodec.WriteJsonFile(fullPath, text);
             this.Log($"{data.GetType().Name.Color("cyan")} → {Path.GetFileName(fullPath).Bold()}");
         }
 
@@ -201,11 +201,11 @@ namespace HungNT.Datasave
 
             try
             {
-                var text = DatasaveDiskCodec.ReadJsonFile(fullPath);
+                var text = DataSaveDiskCodec.ReadJsonFile(fullPath);
                 if (string.IsNullOrEmpty(text))
                     return (BaseSaveData)Activator.CreateInstance(type);
 
-                var loaded = DatasaveOdinIO.DeserializeFromOdinJsonText(type, text);
+                var loaded = DataSaveOdinIO.DeserializeFromOdinJsonText(type, text);
                 if (loaded == null)
                     return (BaseSaveData)Activator.CreateInstance(type);
 
@@ -250,11 +250,11 @@ namespace HungNT.Datasave
             var file = sample.SaveFileName?.Trim();
             if (string.IsNullOrWhiteSpace(file))
             {
-                DebugEx.LogError($"[{nameof(DatasaveService)}] {sample.GetType().Name}.{nameof(BaseSaveData.SaveFileName)} rỗng — fallback.");
+                DebugEx.LogError($"[{nameof(DataSaveService)}] {sample.GetType().Name}.{nameof(BaseSaveData.SaveFileName)} rỗng — fallback.");
                 file = $"{SaveDataNaming.ToSnakeStem(sample.GetType())}_fallback.json";
             }
 
-            file = DatasaveDiskCodec.ToPhysicalSaveFileName(file);
+            file = DataSaveDiskCodec.ToPhysicalSaveFileName(file);
             var root = RelativeDirectory.Trim().Replace('\\', '/').Trim('/');
             var normalized = file.Trim().Replace('\\', '/').TrimStart('/');
             return string.IsNullOrEmpty(root) ? normalized : $"{root}/{normalized}";

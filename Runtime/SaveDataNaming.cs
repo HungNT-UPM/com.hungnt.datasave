@@ -1,7 +1,7 @@
 using System;
 using System.Text;
 
-namespace HungNT.Datasave
+namespace HungNT.DataSave
 {
     internal static class SaveDataNaming
     {

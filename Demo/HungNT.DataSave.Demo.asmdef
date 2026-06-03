@@ -1,8 +1,8 @@
 {
-  "name": "HungNT.Datasave.Demo",
-  "rootNamespace": "HungNT.Datasave.Demo",
+  "name": "HungNT.DataSave.Demo",
+  "rootNamespace": "HungNT.DataSave.Demo",
   "references": [
-    "HungNT.Datasave",
+    "HungNT.DataSave",
     "HungNT.Core"
   ],
   "includePlatforms": [],

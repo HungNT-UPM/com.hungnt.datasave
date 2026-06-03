@@ -1,7 +1,7 @@
-namespace HungNT.Datasave
+namespace HungNT.DataSave
 {
     /// <summary>Mỗi kiểu <see cref="BaseSaveData"/> tương ứng một file trong thư mục persistent (Odin Serialization).</summary>
-    public interface IDatasaveService : IService
+    public interface IDataSaveService : IService
     {
         T GetData<T>() where T : BaseSaveData, new();
 

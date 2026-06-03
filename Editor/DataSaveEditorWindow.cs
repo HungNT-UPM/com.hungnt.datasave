@@ -6,25 +6,25 @@ using Sirenix.OdinInspector.Editor;
 using UnityEditor;
 using UnityEngine;
 
-namespace HungNT.Datasave.Editor
+namespace HungNT.DataSave.Editor
 {
     /// <summary>Odin EditorWindow: chỉnh <see cref="BaseSaveData"/> trên persistent (cùng codec với runtime).</summary>
-    public sealed class DatasaveEditorWindow : OdinEditorWindow
+    public sealed class DataSaveEditorWindow : OdinEditorWindow
     {
         private const float LeftPanelWidth = 288f;
 
-        [MenuItem("HungNT/Datasave Editor")]
+        [MenuItem("HungNT/DataSave Editor")]
         private static void Open()
         {
-            var w = GetWindow<DatasaveEditorWindow>();
-            w.titleContent = new GUIContent("Datasave Editor");
+            var w = GetWindow<DataSaveEditorWindow>();
+            w.titleContent = new GUIContent("DataSave Editor");
             w.minSize = new Vector2(640f, 420f);
         }
 
         private readonly List<Type> _domainTypes = new();
 
         private GameObject _editorSessionRoot;
-        private DatasaveService _datasave;
+        private DataSaveService _datasave;
         private EditorDatasaveBinder _binder;
         private PropertyTree _propertyTree;
         private int _selectedIndex = -1;
@@ -211,7 +211,7 @@ namespace HungNT.Datasave.Editor
             using (new EditorGUI.DisabledScope(!Application.isPlaying))
             {
                 if (GUILayout.Button("Reload services", GUILayout.Height(26f)))
-                    ReloadPlayingDatasaveServices();
+                    ReloadPlayingDataSaveServices();
             }
 
             EditorGUILayout.EndHorizontal();
@@ -229,16 +229,16 @@ namespace HungNT.Datasave.Editor
             EditorGUILayout.EndHorizontal();
         }
 
-        private void ReloadPlayingDatasaveServices()
+        private void ReloadPlayingDataSaveServices()
         {
             if (!Application.isPlaying)
                 return;
 
-            var services = UnityEngine.Object.FindObjectsByType<DatasaveService>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+            var services = UnityEngine.Object.FindObjectsByType<DataSaveService>(FindObjectsInactive.Include, FindObjectsSortMode.None);
             foreach (var svc in services)
                 svc.ReloadFromDisk();
 
-            this.Log("ReloadFromDisk on DatasaveService.".Color("lime"));
+            this.Log("ReloadFromDisk on DataSaveService.".Color("lime"));
         }
 
         private void EnsureEditorSession()
@@ -246,11 +246,11 @@ namespace HungNT.Datasave.Editor
             if (_datasave != null && _binder != null)
                 return;
 
-            _editorSessionRoot = new GameObject("[HungNT.Datasave.EditorSession]")
+            _editorSessionRoot = new GameObject("[HungNT.DataSave.EditorSession]")
             {
                 hideFlags = HideFlags.HideAndDontSave
             };
-            _datasave = _editorSessionRoot.AddComponent<DatasaveService>();
+            _datasave = _editorSessionRoot.AddComponent<DataSaveService>();
             _binder = new EditorDatasaveBinder(_datasave);
         }
 
@@ -314,7 +314,7 @@ namespace HungNT.Datasave.Editor
                 }
                 catch (Exception ex)
                 {
-                    Debug.LogWarning($"[DatasaveEditor] Skip delete `{path}`: {ex.Message}");
+                    Debug.LogWarning($"[DataSaveEditor] Skip delete `{path}`: {ex.Message}");
                 }
             }
 
@@ -329,11 +329,11 @@ namespace HungNT.Datasave.Editor
             _propertyTree = null;
         }
 
-        private sealed class EditorDatasaveBinder : IDatasaveService
+        private sealed class EditorDatasaveBinder : IDataSaveService
         {
-            private readonly DatasaveService _datasave;
+            private readonly DataSaveService _datasave;
 
-            public EditorDatasaveBinder(DatasaveService datasave)
+            public EditorDatasaveBinder(DataSaveService datasave)
             {
                 _datasave = datasave;
             }

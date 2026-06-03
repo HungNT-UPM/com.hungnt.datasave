@@ -1,12 +1,12 @@
-# HungNT Datasave (`com.hungnt.datasave`)
+# com.hungnt.datasave
 
-Lưu / load nhiều **domain** độc lập: mỗi class `BaseSaveData` → một file trong thư mục persistent (mặc định **`Datasave/`**). Serialize bằng **Odin Serialization** (JSON), không dùng Newtonsoft.
+Service lưu / load nhiều **domain** độc lập: mỗi class `BaseSaveData` → một file trong thư mục persistent (mặc định **`DataSave/`**). Serialize bằng **Odin Serialization** (JSON), không dùng Newtonsoft.
 
 ## Tính năng
 
-- **`IDatasaveService` / `DatasaveService`** — `GetData<T>()`, reload, tích hợp Service Locator
+- **`IDataSaveService` / `DataSaveService`** — `GetData<T>()`, reload, tích hợp Service Locator
 - **`BaseSaveData`** — subclass định nghĩa schema; `Save()` / load tự động
-- **DEBUG** — file `.json` plain text (dễ đọc, **HungNT → Datasave Editor**)
+- **DEBUG** — file `.json` plain text (dễ đọc, **HungNT → DataSave Editor**)
 - **Release** — AES-CBC, đuôi **`.datasave`**
 - **Tên file** — snake_case từ tên type; override `SaveFileStem` nếu cần
 - Editor window chỉnh field runtime với `PropertyTree` (backend Odin)
@@ -18,14 +18,14 @@ Lưu / load nhiều **domain** độc lập: mỗi class `BaseSaveData` → mộ
 | Có symbol `DEBUG` | `*.json` (Odin JSON UTF-8) |
 | Release | `*.datasave` (AES bọc cùng payload JSON) |
 
-Đổi schema khi dev: xóa folder `Datasave/` trong `Application.persistentDataPath` — không có auto-migrate.
+Đổi schema khi dev: xóa folder `DataSave/` trong `Application.persistentDataPath` — không có auto-migrate.
 
 ## Demo
 
-Assembly **`HungNT.Datasave.Demo`**:
+Assembly **`HungNT.DataSave.Demo`**:
 
-- `GeneralSaveData`, `BoosterDomainSaveData` — ví dụ domain
-- `MultiDomainDatasaveDemo` — lấy nhiều domain qua `IDatasaveService`
+- `GeneralSaveData` — ví dụ domain
+- `MultiDomainDatasaveDemo` — lấy nhiều domain qua `IDataSaveService`
 
 ```csharp
 public class GeneralSaveData : BaseSaveData
@@ -34,10 +34,10 @@ public class GeneralSaveData : BaseSaveData
     public int Coin;
 }
 
-var save = this.GetService<IDatasaveService>();
+var save = ServiceLocator.Instance.Get<IDataSaveService>();
 var general = save.GetData<GeneralSaveData>();
 general.Coin += 100;
 general.Save();
 ```
 
-**Editor:** **Reload Data** trên `DatasaveService`, hoặc **Reload services** trong Datasave Editor window.
+**Editor:** **HungNT > DataSave Editor** — chỉnh và reload domain trực tiếp.

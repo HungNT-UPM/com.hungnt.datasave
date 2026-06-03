@@ -1,6 +1,6 @@
 using System;
 
-namespace HungNT.Datasave
+namespace HungNT.DataSave
 {
     /// <summary>
     /// Lưu các cài đặt chung của game như ngôn ngữ, âm thanh, rung,...
