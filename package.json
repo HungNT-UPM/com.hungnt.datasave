@@ -1,7 +1,7 @@
 {
   "name": "com.hungnt.datasave",
   "version": "1.1.0",
-  "displayName": "com.hungnt.datasave",
+  "displayName": "HungNT Data Save",
   "description": "Multi-domain save/load (HungNT.DataSave): BaseSaveData + DataSaveService (Odin Serialization JSON; DEBUG=plain text, release=.datasave AES), demos.",
   "unity": "2022.3",
   "dependencies": {
