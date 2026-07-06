@@ -2,10 +2,11 @@
   "name": "com.hungnt.datasave",
   "version": "1.1.0",
   "displayName": "HungNT Data Save",
-  "description": "Multi-domain save/load (HungNT.DataSave): BaseSaveData + DataSaveService (Odin Serialization JSON; DEBUG=plain text, release=.datasave AES), demos.",
+  "description": "Multi-domain save/load (HungNT.DataSave): BaseSaveData + DataSaveService — Newtonsoft JSON plain text, Save() = dirty-flag ghi gộp theo interval trên background thread, atomic write (.tmp + replace), demos.",
   "unity": "2022.3",
   "dependencies": {
-    "com.hungnt.core": "1.0.6"
+    "com.hungnt.core": "1.0.6",
+    "com.unity.nuget.newtonsoft-json": "3.2.1"
   },
   "author": {
     "name": "HungNT",

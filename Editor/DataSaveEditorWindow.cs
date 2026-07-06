@@ -363,6 +363,11 @@ namespace HungNT.DataSave.Editor
 
             public void Save<T>() where T : BaseSaveData, new() => Save(GetData<T>());
 
+            // Editor context: ghi ngay, không có vòng flush nền.
+            public void SaveImmediate(BaseSaveData data) => Save(data);
+
+            public void FlushDirty() => _datasave.FlushDirty();
+
             public void SaveAll(bool hasLog) => _datasave.SaveAll(hasLog);
 
             public void ReloadFromDisk()

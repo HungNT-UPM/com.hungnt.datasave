@@ -1,22 +1,34 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Threading.Tasks;
 using Sirenix.OdinInspector;
 using UnityEngine;
 
 namespace HungNT.DataSave
 {
     /// <summary>
-    /// Service: cache + một file / miền (<see cref="BaseSaveData"/>) dưới persistent.
-    /// Serialize: <b>Odin</b> <see cref="Sirenix.Serialization.DataFormat.JSON"/>. Đĩa: <c>DEBUG</c> = text; release = <see cref="DataSaveDiskCodec.EncryptedExtension"/>.
+    /// Service: cache + một file JSON / miền (<see cref="BaseSaveData"/>) dưới persistent — plain text, đọc/sửa được.
+    /// <para><b>Ghi đĩa:</b> <see cref="Save(BaseSaveData)"/> chỉ đánh dấu dirty; mỗi <see cref="_flushInterval"/> giây
+    /// service serialize trên main thread rồi ghi atomic (<c>.tmp</c> + replace) trên background thread — không lag game
+    /// kể cả khi code gọi Save() mỗi frame. Pause/quit: ghi đồng bộ toàn bộ để chắc chắn không mất dữ liệu.</para>
     /// </summary>
     public class DataSaveService : MonoBehaviour, IDataSaveService
     {
         public const string RelativeDirectory = "DataSave";
 
+        [SerializeField, Min(0.5f)]
+        [Tooltip("Chu kỳ gộp ghi các domain dirty xuống đĩa (giây).")]
+        private float _flushInterval = 5f;
+
         private Dictionary<Type, BaseSaveData> _cache;
         private Dictionary<Type, string> _fullPathByType;
-        private Dictionary<string, Type> _pathOwner;
+        private HashSet<Type> _dirty;
+
+        // .tmp + replace không được chạy song song trên cùng file (flush nền vs ghi sync khi pause/quit).
+        private readonly object _ioLock = new object();
+        private float _flushTimer;
+        private volatile bool _flushInFlight;
 
         [ShowInInspector, ReadOnly]
         private IReadOnlyDictionary<Type, BaseSaveData> CachedDomains
@@ -27,6 +39,9 @@ namespace HungNT.DataSave
                 return _cache;
             }
         }
+
+        [ShowInInspector, ReadOnly]
+        private int DirtyCount => _dirty?.Count ?? 0;
 
         private void Awake() => EnsureCaches();
 
@@ -40,6 +55,8 @@ namespace HungNT.DataSave
         public void LateInitialize()
         {
         }
+
+        // ── Get / Load ───────────────────────────────────────────────────────
 
         /// <summary>Đọc cache / đĩa, không gắn <see cref="IDataSaveService"/> (Editor / công cụ tự <c>BindService</c>).</summary>
         public BaseSaveData GetOrLoadDomain(Type type)
@@ -71,7 +88,43 @@ namespace HungNT.DataSave
             return data;
         }
 
-        /// <summary>Ghi payload xuống đĩa và cập nhật cache (không đổi <c>BindService</c>).</summary>
+        // ── Save: dirty-flag + flush ─────────────────────────────────────────
+
+        /// <summary>Đánh dấu dirty — ghi ở lần flush kế (interval / pause / quit). Gọi mỗi frame cũng không tốn IO.</summary>
+        public void Save(BaseSaveData data)
+        {
+            if (data == null)
+            {
+                this.LogError($"{nameof(Save)}: null payload.");
+                return;
+            }
+
+            EnsureCaches();
+            data.BindService(this);
+
+            var type = data.GetType();
+            _cache[type] = data;
+            _dirty.Add(type);
+        }
+
+        public void Save<T>() where T : BaseSaveData, new() => Save(GetData<T>());
+
+        /// <summary>Ghi một domain xuống đĩa ngay (đồng bộ, atomic).</summary>
+        public void SaveImmediate(BaseSaveData data)
+        {
+            if (data == null)
+            {
+                this.LogError($"{nameof(SaveImmediate)}: null payload.");
+                return;
+            }
+
+            EnsureCaches();
+            data.BindService(this);
+            WriteDomain(data);
+            _dirty.Remove(data.GetType());
+        }
+
+        /// <summary>Ghi payload xuống đĩa ngay và cập nhật cache (không đổi <c>BindService</c>). API cấp thấp cho Editor/tool.</summary>
         public void WriteDomain(BaseSaveData data)
         {
             if (data == null)
@@ -88,20 +141,21 @@ namespace HungNT.DataSave
             _cache[concreteType] = data;
         }
 
-        public void Save(BaseSaveData data)
+        /// <summary>Ghi ngay mọi domain đang dirty (đồng bộ).</summary>
+        public void FlushDirty()
         {
-            if (data == null)
-            {
-                this.LogError($"{nameof(Save)}: null payload.");
+            EnsureCaches();
+            if (_dirty.Count == 0)
                 return;
+
+            foreach (var type in _dirty)
+            {
+                if (_cache.TryGetValue(type, out var data))
+                    WriteToDisk(data, GetOrCreateFullPath(type, data));
             }
 
-            EnsureCaches();
-            data.BindService(this);
-            WriteDomain(data);
+            _dirty.Clear();
         }
-
-        public void Save<T>() where T : BaseSaveData, new() => Save(GetData<T>());
 
         public void SaveAll(bool hasLog = false)
         {
@@ -112,9 +166,68 @@ namespace HungNT.DataSave
                 WriteToDisk(kvp.Value, fullPath);
             }
 
+            _dirty.Clear();
+
             if (hasLog)
                 this.Log($"SaveAll: {_cache.Count} file(s).");
         }
+
+        // ── Flush nền theo chu kỳ ────────────────────────────────────────────
+
+        private void Update()
+        {
+            if (_dirty == null || _dirty.Count == 0)
+            {
+                _flushTimer = 0f;
+                return;
+            }
+
+            _flushTimer += Time.unscaledDeltaTime;
+            if (_flushTimer < _flushInterval || _flushInFlight)
+                return;
+
+            _flushTimer = 0f;
+            FlushDirtyInBackground();
+        }
+
+        /// <summary>Serialize trên main thread (data không thread-safe), IO trên background thread.</summary>
+        private void FlushDirtyInBackground()
+        {
+            var jobs = new List<(string path, string json)>(_dirty.Count);
+            foreach (var type in _dirty)
+            {
+                if (_cache.TryGetValue(type, out var data))
+                    jobs.Add((GetOrCreateFullPath(type, data), DataSaveJsonIO.Serialize(data)));
+            }
+
+            _dirty.Clear();
+
+            if (jobs.Count == 0)
+                return;
+
+            _flushInFlight = true;
+            Task.Run(() =>
+            {
+                try
+                {
+                    foreach (var (path, json) in jobs)
+                    {
+                        lock (_ioLock)
+                            DataSaveFileIO.WriteAtomic(path, json);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    DebugEx.LogError($"[{nameof(DataSaveService)}] Background flush failed: {ex}");
+                }
+                finally
+                {
+                    _flushInFlight = false;
+                }
+            });
+        }
+
+        // ── Cache / Reload / Delete ──────────────────────────────────────────
 
         public void EvictCachedDomains()
         {
@@ -147,10 +260,12 @@ namespace HungNT.DataSave
             var sample = _cache.TryGetValue(type, out var cached) ? cached : new T();
             var fullPath = GetOrCreateFullPath(type, sample);
 
-            DataSaveDiskCodec.DeleteFileIfExists(fullPath);
+            lock (_ioLock)
+                DataSaveFileIO.DeleteFileIfExists(fullPath);
 
-            UntrackPaths(type);
+            _fullPathByType.Remove(type);
             _cache.Remove(type);
+            _dirty.Remove(type);
             this.Log($"Deleted {type.Name}");
         }
 
@@ -162,50 +277,55 @@ namespace HungNT.DataSave
             {
                 if (!seen.Add(full))
                     continue;
-                DataSaveDiskCodec.DeleteFileIfExists(full);
+
+                lock (_ioLock)
+                    DataSaveFileIO.DeleteFileIfExists(full);
             }
 
             _cache.Clear();
             _fullPathByType.Clear();
-            _pathOwner.Clear();
+            _dirty.Clear();
 
             this.Log("DeleteAll: cleared tracked files.");
         }
+
+        // ── Private ──────────────────────────────────────────────────────────
 
         private void EnsureCaches()
         {
             _cache ??= new Dictionary<Type, BaseSaveData>();
             _fullPathByType ??= new Dictionary<Type, string>();
-            _pathOwner ??= new Dictionary<string, Type>();
+            _dirty ??= new HashSet<Type>();
         }
 
         private void EvictDomain(Type type)
         {
             if (type == null)
                 return;
+
             _cache.Remove(type);
-            UntrackPaths(type);
+            _fullPathByType.Remove(type);
+            _dirty.Remove(type);
         }
 
         private void WriteToDisk(BaseSaveData data, string fullPath)
         {
-            var text = DataSaveOdinIO.SerializeToOdinJsonText(data);
-            DataSaveDiskCodec.WriteJsonFile(fullPath, text);
+            var json = DataSaveJsonIO.Serialize(data);
+            lock (_ioLock)
+                DataSaveFileIO.WriteAtomic(fullPath, json);
+
             this.Log($"{data.GetType().Name.Color("cyan")} → {Path.GetFileName(fullPath).Bold()}");
         }
 
         private BaseSaveData ReadFromDiskOrCreate(Type type, string fullPath)
         {
-            if (!File.Exists(fullPath))
-                return (BaseSaveData)Activator.CreateInstance(type);
-
             try
             {
-                var text = DataSaveDiskCodec.ReadJsonFile(fullPath);
+                var text = DataSaveFileIO.ReadAllText(fullPath);
                 if (string.IsNullOrEmpty(text))
                     return (BaseSaveData)Activator.CreateInstance(type);
 
-                var loaded = DataSaveOdinIO.DeserializeFromOdinJsonText(type, text);
+                var loaded = DataSaveJsonIO.Deserialize(type, text);
                 if (loaded == null)
                     return (BaseSaveData)Activator.CreateInstance(type);
 
@@ -218,17 +338,6 @@ namespace HungNT.DataSave
             }
         }
 
-        private void UntrackPaths(Type type)
-        {
-            if (!_fullPathByType.TryGetValue(type, out var full))
-                return;
-
-            _fullPathByType.Remove(type);
-
-            if (_pathOwner.TryGetValue(full, out var owner) && owner == type)
-                _pathOwner.Remove(full);
-        }
-
         private string GetOrCreateFullPath(Type type, BaseSaveData sample)
         {
             if (_fullPathByType.TryGetValue(type, out var existing))
@@ -237,10 +346,15 @@ namespace HungNT.DataSave
             var relativePath = ComposeRelativeSavePath(sample);
             var full = Path.Combine(Application.persistentDataPath, relativePath);
 
-            if (_pathOwner.TryGetValue(full, out var otherType) && otherType != type)
-                this.LogWarning($"{type.Name} và {otherType.Name} trùng file `{full}`.");
+            foreach (var kvp in _fullPathByType)
+            {
+                if (kvp.Value == full)
+                {
+                    this.LogWarning($"{type.Name} và {kvp.Key.Name} trùng file `{full}`.");
+                    break;
+                }
+            }
 
-            _pathOwner[full] = type;
             _fullPathByType[type] = full;
             return full;
         }
@@ -254,12 +368,12 @@ namespace HungNT.DataSave
                 file = $"{SaveDataNaming.ToSnakeStem(sample.GetType())}_fallback.json";
             }
 
-            file = DataSaveDiskCodec.ToPhysicalSaveFileName(file);
             var root = RelativeDirectory.Trim().Replace('\\', '/').Trim('/');
             var normalized = file.Trim().Replace('\\', '/').TrimStart('/');
             return string.IsNullOrEmpty(root) ? normalized : $"{root}/{normalized}";
         }
 
+        // Pause/quit: ghi đồng bộ TOÀN BỘ (không chỉ dirty) — an toàn trước case code mutate data mà quên Save().
         private void OnApplicationPause(bool pause)
         {
             if (pause)
@@ -267,5 +381,7 @@ namespace HungNT.DataSave
         }
 
         private void OnApplicationQuit() => SaveAll(true);
+
+        private void OnDestroy() => FlushDirty();
     }
 }
