@@ -13,11 +13,11 @@ namespace HungNT.DataSave.Editor
     {
         private const float LeftPanelWidth = 288f;
 
-        [MenuItem("HungNT/DataSave Editor")]
+        [MenuItem("HungNT/Data Save/Data Save Editor")]
         private static void Open()
         {
             var w = GetWindow<DataSaveEditorWindow>();
-            w.titleContent = new GUIContent("DataSave Editor");
+            w.titleContent = new GUIContent("Data Save Editor");
             w.minSize = new Vector2(640f, 420f);
         }
 
