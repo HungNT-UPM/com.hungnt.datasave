@@ -3,7 +3,8 @@
     "rootNamespace": "HungNT.DataSave.Editor",
     "references": [
         "HungNT.Core",
-        "HungNT.DataSave"
+        "HungNT.DataSave",
+        "VContainer"
     ],
     "includePlatforms": [
         "Editor"

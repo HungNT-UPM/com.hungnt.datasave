@@ -2,8 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
-using Sirenix.OdinInspector;
 using UnityEngine;
+using VContainer.Unity;
 
 namespace HungNT.DataSave
 {
@@ -12,48 +12,47 @@ namespace HungNT.DataSave
     /// <para><b>Ghi đĩa:</b> <see cref="Save(BaseSaveData)"/> chỉ đánh dấu dirty; mỗi <see cref="_flushInterval"/> giây
     /// service serialize trên main thread rồi ghi atomic (<c>.tmp</c> + replace) trên background thread — không lag game
     /// kể cả khi code gọi Save() mỗi frame. Pause/quit: ghi đồng bộ toàn bộ để chắc chắn không mất dữ liệu.</para>
+    /// <para><b>Vòng đời:</b> plain C# do container tạo. <see cref="Tick"/> thay <c>Update</c>,
+    /// <see cref="IAppLifecycle"/> thay <c>OnApplicationPause</c>/<c>OnApplicationQuit</c>,
+    /// <see cref="Dispose"/> thay <c>OnDestroy</c>.</para>
     /// </summary>
-    public class DataSaveService : MonoBehaviour, IDataSaveService
+    public class DataSaveService : IDataSaveService, ITickable, IDisposable
     {
         public const string RelativeDirectory = "DataSave";
 
-        [SerializeField, Min(0.5f)]
-        [Tooltip("Chu kỳ gộp ghi các domain dirty xuống đĩa (giây).")]
-        private float _flushInterval = 5f;
+        /// <summary>Chu kỳ gộp ghi các domain dirty xuống đĩa (giây).</summary>
+        public const float DefaultFlushInterval = 5f;
 
-        private Dictionary<Type, BaseSaveData> _cache;
-        private Dictionary<Type, string> _fullPathByType;
-        private HashSet<Type> _dirty;
+        private readonly IAppLifecycle _lifecycle;
+        private readonly float _flushInterval;
+
+        private readonly Dictionary<Type, BaseSaveData> _cache = new();
+        private readonly Dictionary<Type, string> _fullPathByType = new();
+        private readonly HashSet<Type> _dirty = new();
 
         // .tmp + replace không được chạy song song trên cùng file (flush nền vs ghi sync khi pause/quit).
         private readonly object _ioLock = new object();
         private float _flushTimer;
         private volatile bool _flushInFlight;
 
-        [ShowInInspector, ReadOnly]
-        private IReadOnlyDictionary<Type, BaseSaveData> CachedDomains
+        /// <param name="lifecycle">Nguồn sự kiện pause/quit. Ngoài container dùng <see cref="NullAppLifecycle"/>.</param>
+        /// <param name="flushInterval">Chu kỳ gộp ghi (giây), tối thiểu 0.5.</param>
+        public DataSaveService(IAppLifecycle lifecycle, float flushInterval = DefaultFlushInterval)
         {
-            get
-            {
-                EnsureCaches();
-                return _cache;
-            }
+            _lifecycle = lifecycle;
+            _flushInterval = Mathf.Max(0.5f, flushInterval);
+
+            _lifecycle.Paused += OnPaused;
+            _lifecycle.Quitting += OnQuitting;
+
+            this.Log($"Save folder root: {Path.Combine(Application.persistentDataPath, RelativeDirectory).Bold()}");
         }
 
-        [ShowInInspector, ReadOnly]
-        private int DirtyCount => _dirty?.Count ?? 0;
-
-        private void Awake() => EnsureCaches();
-
-        public void Initialize()
+        public void Dispose()
         {
-            EnsureCaches();
-            var root = Path.Combine(Application.persistentDataPath, RelativeDirectory);
-            this.Log($"Save folder root: {root.Bold()}");
-        }
-
-        public void LateInitialize()
-        {
+            _lifecycle.Paused -= OnPaused;
+            _lifecycle.Quitting -= OnQuitting;
+            FlushDirty();
         }
 
         // ── Get / Load ───────────────────────────────────────────────────────
@@ -61,8 +60,6 @@ namespace HungNT.DataSave
         /// <summary>Đọc cache / đĩa, không gắn <see cref="IDataSaveService"/> (Editor / công cụ tự <c>BindService</c>).</summary>
         public BaseSaveData GetOrLoadDomain(Type type)
         {
-            EnsureCaches();
-
             if (type == null || type.IsAbstract || !typeof(BaseSaveData).IsAssignableFrom(type))
                 throw new ArgumentException($"Invalid type: {type}", nameof(type));
             if (type.GetConstructor(Type.EmptyTypes) == null)
@@ -99,7 +96,6 @@ namespace HungNT.DataSave
                 return;
             }
 
-            EnsureCaches();
             data.BindService(this);
 
             var type = data.GetType();
@@ -118,7 +114,6 @@ namespace HungNT.DataSave
                 return;
             }
 
-            EnsureCaches();
             data.BindService(this);
             WriteDomain(data);
             _dirty.Remove(data.GetType());
@@ -133,8 +128,6 @@ namespace HungNT.DataSave
                 return;
             }
 
-            EnsureCaches();
-
             var concreteType = data.GetType();
             var fullPath = GetOrCreateFullPath(concreteType, data);
             WriteToDisk(data, fullPath);
@@ -144,7 +137,6 @@ namespace HungNT.DataSave
         /// <summary>Ghi ngay mọi domain đang dirty (đồng bộ).</summary>
         public void FlushDirty()
         {
-            EnsureCaches();
             if (_dirty.Count == 0)
                 return;
 
@@ -159,7 +151,6 @@ namespace HungNT.DataSave
 
         public void SaveAll(bool hasLog = false)
         {
-            EnsureCaches();
             foreach (var kvp in _cache)
             {
                 var fullPath = GetOrCreateFullPath(kvp.Key, kvp.Value);
@@ -174,9 +165,10 @@ namespace HungNT.DataSave
 
         // ── Flush nền theo chu kỳ ────────────────────────────────────────────
 
-        private void Update()
+        /// <summary>Container gọi mỗi frame (thay cho <c>Update</c> của MonoBehaviour).</summary>
+        public void Tick()
         {
-            if (_dirty == null || _dirty.Count == 0)
+            if (_dirty.Count == 0)
             {
                 _flushTimer = 0f;
                 return;
@@ -231,16 +223,13 @@ namespace HungNT.DataSave
 
         public void EvictCachedDomains()
         {
-            EnsureCaches();
             var types = new List<Type>(_cache.Keys);
             foreach (var type in types)
                 EvictDomain(type);
         }
 
-        [Button(ButtonSizes.Medium)]
         public void ReloadFromDisk()
         {
-            EnsureCaches();
             var types = new List<Type>(_cache.Keys);
             EvictCachedDomains();
             foreach (var type in types)
@@ -254,7 +243,6 @@ namespace HungNT.DataSave
 
         public void Delete<T>() where T : BaseSaveData, new()
         {
-            EnsureCaches();
             var type = typeof(T);
 
             var sample = _cache.TryGetValue(type, out var cached) ? cached : new T();
@@ -271,7 +259,6 @@ namespace HungNT.DataSave
 
         public void DeleteAll()
         {
-            EnsureCaches();
             var seen = new HashSet<string>();
             foreach (var full in _fullPathByType.Values)
             {
@@ -291,12 +278,15 @@ namespace HungNT.DataSave
 
         // ── Private ──────────────────────────────────────────────────────────
 
-        private void EnsureCaches()
+        // Pause: ghi đồng bộ TOÀN BỘ (không chỉ dirty) — an toàn trước case code mutate data mà quên Save().
+        // Trên mobile đây là hook tin cậy hơn quit rất nhiều.
+        private void OnPaused(bool pause)
         {
-            _cache ??= new Dictionary<Type, BaseSaveData>();
-            _fullPathByType ??= new Dictionary<Type, string>();
-            _dirty ??= new HashSet<Type>();
+            if (pause)
+                SaveAll();
         }
+
+        private void OnQuitting() => SaveAll(true);
 
         private void EvictDomain(Type type)
         {
@@ -372,16 +362,5 @@ namespace HungNT.DataSave
             var normalized = file.Trim().Replace('\\', '/').TrimStart('/');
             return string.IsNullOrEmpty(root) ? normalized : $"{root}/{normalized}";
         }
-
-        // Pause/quit: ghi đồng bộ TOÀN BỘ (không chỉ dirty) — an toàn trước case code mutate data mà quên Save().
-        private void OnApplicationPause(bool pause)
-        {
-            if (pause)
-                SaveAll();
-        }
-
-        private void OnApplicationQuit() => SaveAll(true);
-
-        private void OnDestroy() => FlushDirty();
     }
 }

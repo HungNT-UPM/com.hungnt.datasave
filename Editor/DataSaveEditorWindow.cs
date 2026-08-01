@@ -5,6 +5,8 @@ using Sirenix.OdinInspector;
 using Sirenix.OdinInspector.Editor;
 using UnityEditor;
 using UnityEngine;
+using VContainer;
+using VContainer.Unity;
 
 namespace HungNT.DataSave.Editor
 {
@@ -23,7 +25,6 @@ namespace HungNT.DataSave.Editor
 
         private readonly List<Type> _domainTypes = new();
 
-        private GameObject _editorSessionRoot;
         private DataSaveService _datasave;
         private EditorDatasaveBinder _binder;
         private PropertyTree _propertyTree;
@@ -70,10 +71,8 @@ namespace HungNT.DataSave.Editor
         {
             base.OnDestroy();
 
-            if (_editorSessionRoot == null)
-                return;
-            DestroyImmediate(_editorSessionRoot);
-            _editorSessionRoot = null;
+            // Service giờ là plain C# — không còn GameObject nào phải destroy, chỉ cần Dispose.
+            _datasave?.Dispose();
             _datasave = null;
             _binder = null;
         }
@@ -234,11 +233,25 @@ namespace HungNT.DataSave.Editor
             if (!Application.isPlaying)
                 return;
 
-            var services = UnityEngine.Object.FindObjectsByType<DataSaveService>(FindObjectsInactive.Include, FindObjectsSortMode.None);
-            foreach (var svc in services)
-                svc.ReloadFromDisk();
+            // Service không còn nằm trên GameObject — tìm qua các LifetimeScope đang sống.
+            var scopes = UnityEngine.Object.FindObjectsByType<LifetimeScope>(
+                FindObjectsInactive.Include, FindObjectsSortMode.None);
 
-            this.Log("ReloadFromDisk on DataSaveService.".Color("lime"));
+            var reloaded = 0;
+            foreach (var scope in scopes)
+            {
+                if (scope.Container == null)
+                    continue;
+
+                if (scope.Container.TryResolve<IDataSaveService>(out var svc))
+                {
+                    svc.ReloadFromDisk();
+                    reloaded++;
+                    break; // scope con resolve được service của cha — một lần là đủ
+                }
+            }
+
+            this.Log($"ReloadFromDisk on {reloaded} DataSaveService.".Color("lime"));
         }
 
         private void EnsureEditorSession()
@@ -246,11 +259,9 @@ namespace HungNT.DataSave.Editor
             if (_datasave != null && _binder != null)
                 return;
 
-            _editorSessionRoot = new GameObject("[HungNT.DataSave.EditorSession]")
-            {
-                hideFlags = HideFlags.HideAndDontSave
-            };
-            _datasave = _editorSessionRoot.AddComponent<DataSaveService>();
+            // Phiên riêng của cửa sổ, không dính tới container đang chạy.
+            // NullAppLifecycle: công cụ Editor không cần hook pause/quit của app.
+            _datasave = new DataSaveService(new NullAppLifecycle());
             _binder = new EditorDatasaveBinder(_datasave);
         }
 

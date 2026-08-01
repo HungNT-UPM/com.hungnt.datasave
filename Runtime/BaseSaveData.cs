@@ -29,47 +29,36 @@ namespace HungNT.DataSave
 
         /// <summary>
         /// Đánh dấu domain này cần ghi — service flush trong chu kỳ kế tiếp (hoặc khi pause/quit).
-        /// Tự resolve <see cref="IDataSaveService"/> từ ServiceLocator nếu chưa bind hoặc service cũ đã bị destroy.
+        /// Yêu cầu đã <see cref="BindService"/>: lấy data qua <c>IDataSaveService.GetData&lt;T&gt;()</c> là tự bind.
         /// </summary>
         public void Save()
         {
-            if (!TryResolveService(out var service))
+            if (_service == null)
             {
-                this.LogError($"Không tìm thấy {nameof(IDataSaveService)} — chưa đăng ký qua ServiceRegister?");
+                LogUnboundService();
                 return;
             }
 
-            service.Save(this);
+            _service.Save(this);
         }
 
         /// <summary>Ghi domain này xuống đĩa ngay lập tức (đồng bộ, atomic). Dùng cho dữ liệu quan trọng (sau IAP, ...).</summary>
         public void SaveImmediate()
         {
-            if (!TryResolveService(out var service))
+            if (_service == null)
             {
-                this.LogError($"Không tìm thấy {nameof(IDataSaveService)} — chưa đăng ký qua ServiceRegister?");
+                LogUnboundService();
                 return;
             }
 
-            service.SaveImmediate(this);
+            _service.SaveImmediate(this);
         }
 
-        /// <summary>
-        /// Resolve service: ưu tiên <see cref="_service"/> đã bind; nếu null hoặc là MonoBehaviour
-        /// đã destroy (scene reload) thì fallback về ServiceLocator — loại bỏ footgun cache reference cũ.
-        /// </summary>
-        private bool TryResolveService(out IDataSaveService service)
+        private void LogUnboundService()
         {
-            service = _service;
-
-            if (service is UnityEngine.Object unityObj && unityObj == null)
-                service = null;
-
-            if (service == null && ServiceLocator.HasInstance)
-                ServiceLocator.Instance.TryGet(out service);
-
-            _service = service;
-            return service != null;
+            this.LogError(
+                $"Chưa bind {nameof(IDataSaveService)} — hãy lấy data bằng {nameof(IDataSaveService)}.GetData<T>() " +
+                "(inject service qua constructor) thay vì new trực tiếp.");
         }
 
         private static void LogStemInvalidChars()

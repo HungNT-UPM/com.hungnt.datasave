@@ -1,6 +1,6 @@
 {
   "name": "com.hungnt.datasave",
-  "version": "1.1.0",
+  "version": "2.0.0",
   "displayName": "HungNT Data Save",
   "description": "Multi-domain save/load (HungNT.DataSave): BaseSaveData + DataSaveService — Newtonsoft JSON plain text, Save() = dirty-flag ghi gộp theo interval trên background thread, atomic write (.tmp + replace), demos.",
   "unity": "2022.3",

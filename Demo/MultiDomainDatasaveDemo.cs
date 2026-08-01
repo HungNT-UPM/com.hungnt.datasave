@@ -1,11 +1,12 @@
-using HungNT;
 using Sirenix.OdinInspector;
 using UnityEngine;
+using VContainer;
 
 namespace HungNT.DataSave.Demo
 {
     /// <summary>
-    /// Kịch bản minh hoạ điều khiển ba domain song song: chung, booster, daily login; phụ thuộc Service Locator đã đăng ký <see cref="IDataSaveService"/>.
+    /// Minh hoạ đọc/ghi save domain. Cần scope gốc gọi <c>builder.InstallDataSave()</c> và
+    /// <c>builder.RegisterComponentInHierarchy&lt;MultiDomainDatasaveDemo&gt;()</c>.
     /// </summary>
     public class MultiDomainDatasaveDemo : MonoBehaviour
     {
@@ -14,18 +15,20 @@ namespace HungNT.DataSave.Demo
 
         private IDataSaveService _datasave;
 
+        [Inject]
+        public void Construct(IDataSaveService datasave)
+        {
+            _datasave = datasave;
+        }
+
         private void Start()
         {
-            _datasave = ServiceLocator.Instance.Get<IDataSaveService>();
             RefreshViews();
         }
 
         [Button("Refresh views"), FoldoutGroup("Actions")]
         private void RefreshViews()
         {
-            if (_datasave == null)
-                _datasave = ServiceLocator.Instance.Get<IDataSaveService>();
-
             _general = _datasave.GetData<GeneralSaveData>();
         }
     }

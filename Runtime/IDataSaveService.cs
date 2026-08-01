@@ -5,7 +5,7 @@ namespace HungNT.DataSave
     /// <para><see cref="Save(BaseSaveData)"/> = đánh dấu dirty, ghi gộp theo chu kỳ flush + khi pause/quit
     /// (background thread, atomic). Cần ghi ngay: <see cref="SaveImmediate"/> / <see cref="FlushDirty"/>.</para>
     /// </summary>
-    public interface IDataSaveService : IService
+    public interface IDataSaveService
     {
         T GetData<T>() where T : BaseSaveData, new();
 

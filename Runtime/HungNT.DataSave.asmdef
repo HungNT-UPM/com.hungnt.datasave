@@ -2,7 +2,8 @@
     "name": "HungNT.DataSave",
     "rootNamespace": "HungNT.DataSave",
     "references": [
-        "HungNT.Core"
+        "HungNT.Core",
+        "VContainer"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
