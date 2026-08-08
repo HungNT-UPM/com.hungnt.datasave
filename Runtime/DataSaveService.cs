@@ -8,23 +8,20 @@ using VContainer.Unity;
 namespace HungNT.DataSave
 {
     /// <summary>
-    /// Service: cache + một file JSON / miền (<see cref="BaseSaveData"/>) dưới persistent — plain text, đọc/sửa được.
-    /// <para><b>Ghi đĩa:</b> <see cref="Save(BaseSaveData)"/> chỉ đánh dấu dirty; mỗi <see cref="_flushInterval"/> giây
-    /// service serialize trên main thread rồi ghi atomic (<c>.tmp</c> + replace) trên background thread — không lag game
-    /// kể cả khi code gọi Save() mỗi frame. Pause/quit: ghi đồng bộ toàn bộ để chắc chắn không mất dữ liệu.</para>
-    /// <para><b>Vòng đời:</b> plain C# do container tạo. <see cref="Tick"/> thay <c>Update</c>,
-    /// <see cref="IAppLifecycle"/> thay <c>OnApplicationPause</c>/<c>OnApplicationQuit</c>,
-    /// <see cref="Dispose"/> thay <c>OnDestroy</c>.</para>
+    /// Cache + một file JSON cho mỗi miền <see cref="BaseSaveData"/> dưới thư mục persistent.
+    /// File là plain text nên đọc/sửa được khi debug.
+    /// <para><see cref="Save"/> chỉ đánh dấu dirty nên gọi mỗi frame cũng không tốn IO: service gộp ghi
+    /// mỗi 5 giây, serialize trên main thread rồi ghi atomic (<c>.tmp</c> + replace) trên background
+    /// thread. Khi pause hoặc quit thì ghi đồng bộ toàn bộ.</para>
     /// </summary>
     public class DataSaveService : IDataSaveService, ITickable, IDisposable
     {
         public const string RelativeDirectory = "DataSave";
 
         /// <summary>Chu kỳ gộp ghi các domain dirty xuống đĩa (giây).</summary>
-        public const float DefaultFlushInterval = 5f;
+        private const float FlushIntervalSeconds = 5f;
 
-        private readonly IAppLifecycle _lifecycle;
-        private readonly float _flushInterval;
+        private readonly IAppLifecycleService _appLifecycle;
 
         private readonly Dictionary<Type, BaseSaveData> _cache = new();
         private readonly Dictionary<Type, string> _fullPathByType = new();
@@ -35,33 +32,31 @@ namespace HungNT.DataSave
         private float _flushTimer;
         private volatile bool _flushInFlight;
 
-        /// <param name="lifecycle">Nguồn sự kiện pause/quit. Ngoài container dùng <see cref="NullAppLifecycle"/>.</param>
-        /// <param name="flushInterval">Chu kỳ gộp ghi (giây), tối thiểu 0.5.</param>
-        public DataSaveService(IAppLifecycle lifecycle, float flushInterval = DefaultFlushInterval)
+        /// <param name="appLifecycle">Nguồn sự kiện pause/quit. Ngoài container dùng <see cref="NullAppLifecycleService"/>.</param>
+        public DataSaveService(IAppLifecycleService appLifecycle)
         {
-            _lifecycle = lifecycle;
-            _flushInterval = Mathf.Max(0.5f, flushInterval);
-
-            _lifecycle.Paused += OnPaused;
-            _lifecycle.Quitting += OnQuitting;
+            _appLifecycle = appLifecycle;
+            _appLifecycle.OnPaused += HandlePaused;
+            _appLifecycle.OnQuitting += HandleQuitting;
 
             this.Log($"Save folder root: {Path.Combine(Application.persistentDataPath, RelativeDirectory).Bold()}");
         }
 
         public void Dispose()
         {
-            _lifecycle.Paused -= OnPaused;
-            _lifecycle.Quitting -= OnQuitting;
+            _appLifecycle.OnPaused -= HandlePaused;
+            _appLifecycle.OnQuitting -= HandleQuitting;
             FlushDirty();
         }
 
         // ── Get / Load ───────────────────────────────────────────────────────
 
-        /// <summary>Đọc cache / đĩa, không gắn <see cref="IDataSaveService"/> (Editor / công cụ tự <c>BindService</c>).</summary>
+        /// <summary>Đọc từ cache, không có thì load từ đĩa (hoặc tạo mới nếu file chưa tồn tại).</summary>
         public BaseSaveData GetOrLoadDomain(Type type)
         {
             if (type == null || type.IsAbstract || !typeof(BaseSaveData).IsAssignableFrom(type))
                 throw new ArgumentException($"Invalid type: {type}", nameof(type));
+            
             if (type.GetConstructor(Type.EmptyTypes) == null)
                 throw new ArgumentException($"Type {type.Name} needs a parameterless constructor.", nameof(type));
 
@@ -74,20 +69,14 @@ namespace HungNT.DataSave
             data.OnAfterLoad();
 
             _cache[type] = data;
-            this.Log($"{type.Name.Color("cyan")} → {Path.GetFileName(fullPath).Bold()}");
             return data;
         }
 
-        public T GetData<T>() where T : BaseSaveData, new()
-        {
-            var data = (T)GetOrLoadDomain(typeof(T));
-            data.BindService(this);
-            return data;
-        }
+        public T GetData<T>() where T : BaseSaveData, new() => (T)GetOrLoadDomain(typeof(T));
 
         // ── Save: dirty-flag + flush ─────────────────────────────────────────
 
-        /// <summary>Đánh dấu dirty — ghi ở lần flush kế (interval / pause / quit). Gọi mỗi frame cũng không tốn IO.</summary>
+        /// <summary>Đánh dấu dirty — ghi ở lần flush kế tiếp (chu kỳ / pause / quit).</summary>
         public void Save(BaseSaveData data)
         {
             if (data == null)
@@ -96,8 +85,6 @@ namespace HungNT.DataSave
                 return;
             }
 
-            data.BindService(this);
-
             var type = data.GetType();
             _cache[type] = data;
             _dirty.Add(type);
@@ -105,7 +92,7 @@ namespace HungNT.DataSave
 
         public void Save<T>() where T : BaseSaveData, new() => Save(GetData<T>());
 
-        /// <summary>Ghi một domain xuống đĩa ngay (đồng bộ, atomic).</summary>
+        /// <summary>Ghi một domain xuống đĩa ngay (đồng bộ, atomic). Dùng cho dữ liệu quan trọng như sau IAP.</summary>
         public void SaveImmediate(BaseSaveData data)
         {
             if (data == null)
@@ -114,12 +101,11 @@ namespace HungNT.DataSave
                 return;
             }
 
-            data.BindService(this);
             WriteDomain(data);
             _dirty.Remove(data.GetType());
         }
 
-        /// <summary>Ghi payload xuống đĩa ngay và cập nhật cache (không đổi <c>BindService</c>). API cấp thấp cho Editor/tool.</summary>
+        /// <summary>Ghi payload xuống đĩa ngay và cập nhật cache. API cấp thấp cho Editor/tool.</summary>
         public void WriteDomain(BaseSaveData data)
         {
             if (data == null)
@@ -165,7 +151,7 @@ namespace HungNT.DataSave
 
         // ── Flush nền theo chu kỳ ────────────────────────────────────────────
 
-        /// <summary>Container gọi mỗi frame (thay cho <c>Update</c> của MonoBehaviour).</summary>
+        /// <summary>Container gọi mỗi frame để đếm chu kỳ flush.</summary>
         public void Tick()
         {
             if (_dirty.Count == 0)
@@ -175,7 +161,7 @@ namespace HungNT.DataSave
             }
 
             _flushTimer += Time.unscaledDeltaTime;
-            if (_flushTimer < _flushInterval || _flushInFlight)
+            if (_flushTimer < FlushIntervalSeconds || _flushInFlight)
                 return;
 
             _flushTimer = 0f;
@@ -233,10 +219,7 @@ namespace HungNT.DataSave
             var types = new List<Type>(_cache.Keys);
             EvictCachedDomains();
             foreach (var type in types)
-            {
-                var data = GetOrLoadDomain(type);
-                data.BindService(this);
-            }
+                GetOrLoadDomain(type);
 
             this.Log($"{nameof(ReloadFromDisk)}: {types.Count} domain(s).");
         }
@@ -280,13 +263,13 @@ namespace HungNT.DataSave
 
         // Pause: ghi đồng bộ TOÀN BỘ (không chỉ dirty) — an toàn trước case code mutate data mà quên Save().
         // Trên mobile đây là hook tin cậy hơn quit rất nhiều.
-        private void OnPaused(bool pause)
+        private void HandlePaused(bool pause)
         {
             if (pause)
                 SaveAll();
         }
 
-        private void OnQuitting() => SaveAll(true);
+        private void HandleQuitting() => SaveAll(true);
 
         private void EvictDomain(Type type)
         {

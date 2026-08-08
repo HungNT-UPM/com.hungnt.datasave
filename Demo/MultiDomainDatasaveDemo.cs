@@ -5,20 +5,20 @@ using VContainer;
 namespace HungNT.DataSave.Demo
 {
     /// <summary>
-    /// Minh hoạ đọc/ghi save domain. Cần scope gốc gọi <c>builder.InstallDataSave()</c> và
-    /// <c>builder.RegisterComponentInHierarchy&lt;MultiDomainDatasaveDemo&gt;()</c>.
+    /// Minh hoạ đọc và ghi một save domain.
+    /// Cần đăng ký <see cref="IDataSaveService"/> và component này ở LifetimeScope của scene.
     /// </summary>
     public class MultiDomainDatasaveDemo : MonoBehaviour
     {
         [ShowInInspector, ReadOnly, FoldoutGroup("General")]
         private GeneralSaveData _general;
 
-        private IDataSaveService _datasave;
+        private IDataSaveService _dataSave;
 
         [Inject]
-        public void Construct(IDataSaveService datasave)
+        public void Construct(IDataSaveService dataSave)
         {
-            _datasave = datasave;
+            _dataSave = dataSave;
         }
 
         private void Start()
@@ -29,7 +29,7 @@ namespace HungNT.DataSave.Demo
         [Button("Refresh views"), FoldoutGroup("Actions")]
         private void RefreshViews()
         {
-            _general = _datasave.GetData<GeneralSaveData>();
+            _general = _dataSave.GetData<GeneralSaveData>();
         }
     }
 }

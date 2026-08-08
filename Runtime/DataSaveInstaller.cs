@@ -7,17 +7,12 @@ namespace HungNT.DataSave
     public static class DataSaveInstaller
     {
         /// <summary>
-        /// Cần <see cref="IAppLifecycle"/> đã đăng ký trước (gọi <c>builder.InstallCore()</c>).
-        /// <c>RegisterEntryPoint</c> để container tự chạy <c>Tick</c> (flush theo chu kỳ) và <c>Dispose</c>.
+        /// Cần <see cref="IAppLifecycleService"/> đã đăng ký trước (<c>InstallCore</c>).
+        /// Đăng ký dạng entry point để container tự chạy flush theo chu kỳ và ghi nốt khi scope kết thúc.
         /// </summary>
-        /// <param name="flushInterval">Chu kỳ gộp ghi xuống đĩa (giây).</param>
-        public static IContainerBuilder InstallDataSave(
-            this IContainerBuilder builder,
-            float flushInterval = DataSaveService.DefaultFlushInterval)
+        public static IContainerBuilder InstallDataSave(this IContainerBuilder builder)
         {
-            builder.RegisterEntryPoint<DataSaveService>()
-                .WithParameter("flushInterval", flushInterval);
-
+            builder.RegisterEntryPoint<DataSaveService>();
             return builder;
         }
     }

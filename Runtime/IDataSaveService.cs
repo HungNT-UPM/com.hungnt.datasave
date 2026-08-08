@@ -7,6 +7,7 @@ namespace HungNT.DataSave
     /// </summary>
     public interface IDataSaveService
     {
+        /// <summary>Lấy domain <typeparamref name="T"/> từ cache, chưa có thì đọc đĩa (hoặc tạo mới nếu file chưa tồn tại).</summary>
         T GetData<T>() where T : BaseSaveData, new();
 
         /// <summary>Đánh dấu domain dirty — ghi ở lần flush kế tiếp (interval / pause / quit). Gọi nhiều lần không tốn IO.</summary>

@@ -25,8 +25,8 @@ namespace HungNT.DataSave.Editor
 
         private readonly List<Type> _domainTypes = new();
 
-        private DataSaveService _datasave;
-        private EditorDatasaveBinder _binder;
+        // Phiên riêng của cửa sổ, CHỈ dùng khi không Play — xem ActiveService.
+        private DataSaveService _editorSession;
         private PropertyTree _propertyTree;
         private int _selectedIndex = -1;
         private Vector2 _leftScroll;
@@ -34,13 +34,57 @@ namespace HungNT.DataSave.Editor
         private Type SelectedType =>
             _selectedIndex >= 0 && _selectedIndex < _domainTypes.Count ? _domainTypes[_selectedIndex] : null;
 
+        /// <summary>
+        /// Service mà cửa sổ đang thao tác lên.
+        /// <para><b>Play mode:</b> đúng service của game (resolve từ LifetimeScope) — sửa ở đây ăn thẳng vào
+        /// cache runtime. Nếu dùng một instance riêng thì cache của game vẫn giữ dữ liệu trong bộ nhớ và sẽ ghi đè
+        /// lên đĩa ở lần flush kế tiếp, tức chỉnh sửa bị mất.</para>
+        /// <para><b>Edit mode:</b> phiên riêng của cửa sổ (chưa có container nào chạy).</para>
+        /// </summary>
+        private DataSaveService ActiveService
+        {
+            get
+            {
+                if (Application.isPlaying)
+                {
+                    var runtime = FindRuntimeService();
+                    if (runtime != null)
+                        return runtime;
+                }
+
+                EnsureEditorSession();
+                return _editorSession;
+            }
+        }
+
+        /// <summary>Scope con resolve được service của scope cha nên lấy kết quả khớp đầu tiên là đủ.</summary>
+        private static DataSaveService FindRuntimeService()
+        {
+            var scopes = UnityEngine.Object.FindObjectsByType<LifetimeScope>(
+                FindObjectsInactive.Include, FindObjectsSortMode.None);
+
+            foreach (var scope in scopes)
+            {
+                if (scope.Container == null)
+                    continue;
+
+                if (scope.Container.TryResolve<IDataSaveService>(out var service) && service is DataSaveService concrete)
+                    return concrete;
+            }
+
+            return null;
+        }
+
         protected override void OnEnable()
         {
             base.OnEnable();
 
+            EditorApplication.playModeStateChanged -= OnPlayModeStateChanged;
+            EditorApplication.playModeStateChanged += OnPlayModeStateChanged;
+
             RefreshDomainTypes();
             var createdNewDomains = false;
-            if (_datasave == null || _binder == null)
+            if (_editorSession == null && !Application.isPlaying)
             {
                 EnsureEditorSession();
                 createdNewDomains = true;
@@ -64,17 +108,30 @@ namespace HungNT.DataSave.Editor
         protected override void OnDisable()
         {
             base.OnDisable();
+            EditorApplication.playModeStateChanged -= OnPlayModeStateChanged;
             DisposePropertyTree();
+        }
+
+        /// <summary>
+        /// Vào/ra Play mode là đổi service nguồn (phiên editor ↔ service của game),
+        /// nên phải dựng lại PropertyTree — nếu không nó vẫn trỏ vào object của service cũ.
+        /// </summary>
+        private void OnPlayModeStateChanged(PlayModeStateChange change)
+        {
+            if (change != PlayModeStateChange.EnteredPlayMode && change != PlayModeStateChange.EnteredEditMode)
+                return;
+
+            RefreshPropertyTree();
+            Repaint();
         }
 
         protected override void OnDestroy()
         {
             base.OnDestroy();
 
-            // Service giờ là plain C# — không còn GameObject nào phải destroy, chỉ cần Dispose.
-            _datasave?.Dispose();
-            _datasave = null;
-            _binder = null;
+            // Chỉ dọn phiên riêng của cửa sổ; service của game do container quản.
+            _editorSession?.Dispose();
+            _editorSession = null;
         }
 
         private void RefreshDomainTypes()
@@ -177,7 +234,6 @@ namespace HungNT.DataSave.Editor
             }
             else
             {
-                EnsureEditorSession();
                 if (_propertyTree != null)
                 {
                     _propertyTree.UpdateTree();
@@ -204,7 +260,7 @@ namespace HungNT.DataSave.Editor
             if (GUILayout.Button("Save all", GUILayout.Height(26f)))
             {
                 EnsureEditorSession();
-                _datasave.SaveAll(true);
+                ActiveService.SaveAll(true);
             }
 
             using (new EditorGUI.DisabledScope(!Application.isPlaying))
@@ -233,7 +289,7 @@ namespace HungNT.DataSave.Editor
             if (!Application.isPlaying)
                 return;
 
-            // Service không còn nằm trên GameObject — tìm qua các LifetimeScope đang sống.
+            // Service nằm trong container, tìm qua các LifetimeScope đang sống.
             var scopes = UnityEngine.Object.FindObjectsByType<LifetimeScope>(
                 FindObjectsInactive.Include, FindObjectsSortMode.None);
 
@@ -256,13 +312,12 @@ namespace HungNT.DataSave.Editor
 
         private void EnsureEditorSession()
         {
-            if (_datasave != null && _binder != null)
+            if (_editorSession != null)
                 return;
 
             // Phiên riêng của cửa sổ, không dính tới container đang chạy.
-            // NullAppLifecycle: công cụ Editor không cần hook pause/quit của app.
-            _datasave = new DataSaveService(new NullAppLifecycle());
-            _binder = new EditorDatasaveBinder(_datasave);
+            // Editor không cần hook pause/quit của app.
+            _editorSession = new DataSaveService(new NullAppLifecycleService());
         }
 
         private void ReloadAllFromDisk()
@@ -270,12 +325,9 @@ namespace HungNT.DataSave.Editor
             if (_domainTypes.Count == 0)
                 return;
             EnsureEditorSession();
-            _datasave.EvictCachedDomains();
+            ActiveService.EvictCachedDomains();
             foreach (var t in _domainTypes)
-            {
-                var d = _datasave.GetOrLoadDomain(t);
-                d.BindService(_binder);
-            }
+                ActiveService.GetOrLoadDomain(t);
 
             RefreshPropertyTree();
             Repaint();
@@ -285,11 +337,10 @@ namespace HungNT.DataSave.Editor
         private void RefreshPropertyTree()
         {
             DisposePropertyTree();
-            if (SelectedType == null || _datasave == null || _binder == null)
+            if (SelectedType == null)
                 return;
 
-            var payload = _datasave.GetOrLoadDomain(SelectedType);
-            payload.BindService(_binder);
+            var payload = ActiveService.GetOrLoadDomain(SelectedType);
             _propertyTree = PropertyTree.Create(payload, SerializationBackend.Odin);
         }
 
@@ -304,7 +355,7 @@ namespace HungNT.DataSave.Editor
 
             ClearPersistentContents();
             EnsureEditorSession();
-            _datasave.EvictCachedDomains();
+            ActiveService.EvictCachedDomains();
             ReloadAllFromDisk();
         }
 
@@ -338,57 +389,6 @@ namespace HungNT.DataSave.Editor
                 return;
             _propertyTree.Dispose();
             _propertyTree = null;
-        }
-
-        private sealed class EditorDatasaveBinder : IDataSaveService
-        {
-            private readonly DataSaveService _datasave;
-
-            public EditorDatasaveBinder(DataSaveService datasave)
-            {
-                _datasave = datasave;
-            }
-
-            public void Initialize()
-            {
-            }
-
-            public void LateInitialize()
-            {
-            }
-
-            public T GetData<T>() where T : BaseSaveData, new()
-            {
-                var data = (T)_datasave.GetOrLoadDomain(typeof(T));
-                data.BindService(this);
-                return data;
-            }
-
-            public void Save(BaseSaveData data)
-            {
-                if (data == null)
-                    return;
-                data.BindService(this);
-                _datasave.WriteDomain(data);
-            }
-
-            public void Save<T>() where T : BaseSaveData, new() => Save(GetData<T>());
-
-            // Editor context: ghi ngay, không có vòng flush nền.
-            public void SaveImmediate(BaseSaveData data) => Save(data);
-
-            public void FlushDirty() => _datasave.FlushDirty();
-
-            public void SaveAll(bool hasLog) => _datasave.SaveAll(hasLog);
-
-            public void ReloadFromDisk()
-            {
-                // Binder chỉ dùng trong EditorWindow; reload qua window.
-            }
-
-            public void Delete<T>() where T : BaseSaveData, new() => _datasave.Delete<T>();
-
-            public void DeleteAll() => _datasave.DeleteAll();
         }
     }
 }
