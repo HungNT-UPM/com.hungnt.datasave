@@ -5,7 +5,7 @@
   "description": "Multi-domain save/load (HungNT.DataSave): BaseSaveData + DataSaveService — Newtonsoft JSON plain text, Save() = dirty-flag ghi gộp theo interval trên background thread, atomic write (.tmp + replace), demos.",
   "unity": "2022.3",
   "dependencies": {
-    "com.hungnt.core": "1.0.6",
+    "com.hungnt.core": "2.0.0",
     "com.unity.nuget.newtonsoft-json": "3.2.1"
   },
   "author": {

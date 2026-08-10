@@ -13,13 +13,7 @@ namespace HungNT.DataSave.Demo
         [ShowInInspector, ReadOnly, FoldoutGroup("General")]
         private GeneralSaveData _general;
 
-        private IDataSaveService _dataSave;
-
-        [Inject]
-        public void Construct(IDataSaveService dataSave)
-        {
-            _dataSave = dataSave;
-        }
+        [Inject] private IDataSaveService _dataSave;
 
         private void Start()
         {
